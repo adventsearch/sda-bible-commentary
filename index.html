@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Bible Commentary</title>
+
+    <style>
+        :root {
+            color-scheme: dark;
+        }
+
+        body {
+            font-family: Georgia, serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+            line-height: 1.6;
+            color: #e8e8e8;
+            background: #181818;
+        }
+
+        h1 {
+            text-align: center;
+            color: #ffffff;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin: 30px 0 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #dddddd;
+            font-weight: bold;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            color: #ffffff;
+            background: #2a2a2a;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        select:disabled {
+            color: #888;
+            background: #222;
+        }
+
+        .verse-navigation {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            margin: 15px 0 25px;
+        }
+
+        button {
+            padding: 10px 18px;
+            color: #ffffff;
+            background: #3a3a3a;
+            border: 1px solid #666;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 15px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #555;
+        }
+
+        button:disabled {
+            color: #777;
+            background: #252525;
+            border-color: #444;
+            cursor: not-allowed;
+        }
+
+        #commentary {
+            padding: 25px;
+            background: #242424;
+            border: 1px solid #3d3d3d;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+
+#commentary h2 {
+    margin-top: 0;
+    color: #5E79FF;
+}
+
+        }
+
+        #commentary p {
+            color: #dddddd;
+            white-space: pre-wrap;
+        }
+
+        .message {
+            color: #999 !important;
+            font-style: italic;
+        }
+
+        @media (max-width: 700px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            .verse-navigation {
+                gap: 10px;
+            }
+
+            button {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Bible Commentary</h1>
+
+    <div class="controls">
+        <div>
+            <label for="bookSelect">Book</label>
+
+            <select id="bookSelect">
+                <option value="">Select a book</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="chapterSelect">Chapter</label>
+
+            <select id="chapterSelect" disabled>
+                <option value="">Select a chapter</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="verseSelect">Verse</label>
+
+            <select id="verseSelect" disabled>
+                <option value="">Select a verse</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="verse-navigation">
+        <button id="previousVerse" disabled>
+            ← Previous verse
+        </button>
+
+        <button id="nextVerse" disabled>
+            Next verse →
+        </button>
+    </div>
+
+    <div id="commentary">
+        <p class="message">
+            Select a book, chapter, and verse to view the commentary.
+        </p>
+    </div>
+
+    <!-- CSV parsing library -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+    <script>
+        let commentaryData = [];
+
+        const bookSelect = document.getElementById("bookSelect");
+        const chapterSelect = document.getElementById("chapterSelect");
+        const verseSelect = document.getElementById("verseSelect");
+
+        const previousVerseButton =
+            document.getElementById("previousVerse");
+
+        const nextVerseButton =
+            document.getElementById("nextVerse");
+
+        const commentaryBox =
+            document.getElementById("commentary");
+
+
+        /*
+         * Load the CSV file
+         */
+        Papa.parse("bible_commentary.csv", {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+
+            complete: function(results) {
+                commentaryData = results.data.filter(row =>
+                    row.book &&
+                    row.chapter &&
+                    row.verse
+                );
+
+                populateBooks();
+            },
+
+            error: function(error) {
+                commentaryBox.innerHTML = `
+                    <p class="message">
+                        Could not load bible_commentary.csv.
+                        Make sure it is in the same folder as this HTML file.
+                    </p>
+                `;
+
+                console.error(error);
+            }
+        });
+
+
+        /*
+         * Populate the book dropdown
+         */
+        function populateBooks() {
+            const books = [
+                ...new Set(
+                    commentaryData.map(row => row.book.trim())
+                )
+            ];
+
+            books.forEach(book => {
+                const option = document.createElement("option");
+
+                option.value = book;
+                option.textContent = book;
+
+                bookSelect.appendChild(option);
+            });
+        }
+
+
+        /*
+         * When a book is selected
+         */
+        bookSelect.addEventListener("change", function() {
+            const selectedBook = bookSelect.value;
+
+            resetSelect(chapterSelect, "Select a chapter");
+            resetSelect(verseSelect, "Select a verse");
+
+            chapterSelect.disabled = true;
+            verseSelect.disabled = true;
+
+            disableNavigationButtons();
+
+            commentaryBox.innerHTML = `
+                <p class="message">
+                    Select a chapter and verse to view the commentary.
+                </p>
+            `;
+
+            if (!selectedBook) {
+                return;
+            }
+
+            const chapters = [
+                ...new Set(
+                    commentaryData
+                        .filter(row =>
+                            row.book.trim() === selectedBook
+                        )
+                        .map(row => row.chapter.trim())
+                )
+            ];
+
+            chapters.sort((a, b) => Number(a) - Number(b));
+
+            chapters.forEach(chapter => {
+                const option = document.createElement("option");
+
+                option.value = chapter;
+                option.textContent = `Chapter ${chapter}`;
+
+                chapterSelect.appendChild(option);
+            });
+
+            chapterSelect.disabled = false;
+        });
+
+
+        /*
+         * When a chapter is selected
+         */
+        chapterSelect.addEventListener("change", function() {
+            const selectedBook = bookSelect.value;
+            const selectedChapter = chapterSelect.value;
+
+            resetSelect(verseSelect, "Select a verse");
+
+            verseSelect.disabled = true;
+            disableNavigationButtons();
+
+            commentaryBox.innerHTML = `
+                <p class="message">
+                    Select a verse to view the commentary.
+                </p>
+            `;
+
+            if (!selectedChapter) {
+                return;
+            }
+
+            const verses = [
+                ...new Set(
+                    commentaryData
+                        .filter(row =>
+                            row.book.trim() === selectedBook &&
+                            row.chapter.trim() === selectedChapter
+                        )
+                        .map(row => row.verse.trim())
+                )
+            ];
+
+            verses.sort((a, b) => Number(a) - Number(b));
+
+            verses.forEach(verse => {
+                const option = document.createElement("option");
+
+                option.value = verse;
+                option.textContent = `Verse ${verse}`;
+
+                verseSelect.appendChild(option);
+            });
+
+            verseSelect.disabled = false;
+        });
+
+
+        /*
+         * When a verse is selected
+         */
+        verseSelect.addEventListener("change", function() {
+            displaySelectedVerse();
+        });
+
+
+        /*
+         * Previous and next verse buttons
+         */
+        previousVerseButton.addEventListener("click", function() {
+            moveToVerse(-1);
+        });
+
+        nextVerseButton.addEventListener("click", function() {
+            moveToVerse(1);
+        });
+
+
+        /*
+         * Display the currently selected verse
+         */
+        function displaySelectedVerse() {
+            const selectedBook = bookSelect.value;
+            const selectedChapter = chapterSelect.value;
+            const selectedVerse = verseSelect.value;
+
+            const row = commentaryData.find(item =>
+                item.book.trim() === selectedBook &&
+                item.chapter.trim() === selectedChapter &&
+                item.verse.trim() === selectedVerse
+            );
+
+            if (!row) {
+                commentaryBox.innerHTML = `
+                    <p class="message">
+                        Commentary not found.
+                    </p>
+                `;
+
+                updateNavigationButtons();
+                return;
+            }
+
+            const title = row.title
+                ? ` — ${escapeHtml(row.title)}`
+                : "";
+
+            commentaryBox.innerHTML = `
+                <h2>
+                    ${escapeHtml(row.book)}
+                    ${escapeHtml(row.chapter)}:${escapeHtml(row.verse)}
+                    ${title}
+                </h2>
+
+                <p>${escapeHtml(row.commentary)}</p>
+            `;
+
+            updateNavigationButtons();
+        }
+
+
+        /*
+         * Move to the previous or next verse
+         *
+         * direction:
+         * -1 = previous verse
+         *  1 = next verse
+         */
+        function moveToVerse(direction) {
+            const selectedBook = bookSelect.value;
+            const selectedChapter = chapterSelect.value;
+            const selectedVerse = verseSelect.value;
+
+            const versesInChapter = commentaryData
+                .filter(row =>
+                    row.book.trim() === selectedBook &&
+                    row.chapter.trim() === selectedChapter
+                )
+                .sort((a, b) =>
+                    Number(a.verse) - Number(b.verse)
+                );
+
+            const currentIndex = versesInChapter.findIndex(row =>
+                row.verse.trim() === selectedVerse
+            );
+
+            const newIndex = currentIndex + direction;
+
+            if (
+                newIndex >= 0 &&
+                newIndex < versesInChapter.length
+            ) {
+                verseSelect.value =
+                    versesInChapter[newIndex].verse.trim();
+
+                displaySelectedVerse();
+            }
+        }
+
+
+        /*
+         * Enable or disable the navigation buttons
+         */
+        function updateNavigationButtons() {
+            const selectedBook = bookSelect.value;
+            const selectedChapter = chapterSelect.value;
+            const selectedVerse = verseSelect.value;
+
+            const versesInChapter = commentaryData
+                .filter(row =>
+                    row.book.trim() === selectedBook &&
+                    row.chapter.trim() === selectedChapter
+                )
+                .sort((a, b) =>
+                    Number(a.verse) - Number(b.verse)
+                );
+
+            const currentIndex = versesInChapter.findIndex(row =>
+                row.verse.trim() === selectedVerse
+            );
+
+            previousVerseButton.disabled =
+                currentIndex <= 0 || currentIndex === -1;
+
+            nextVerseButton.disabled =
+                currentIndex === -1 ||
+                currentIndex >= versesInChapter.length - 1;
+        }
+
+
+        /*
+         * Disable both navigation buttons
+         */
+        function disableNavigationButtons() {
+            previousVerseButton.disabled = true;
+            nextVerseButton.disabled = true;
+        }
+
+
+        /*
+         * Reset a dropdown
+         */
+        function resetSelect(selectElement, defaultText) {
+            selectElement.innerHTML = "";
+
+            const option = document.createElement("option");
+
+            option.value = "";
+            option.textContent = defaultText;
+
+            selectElement.appendChild(option);
+        }
+
+
+        /*
+         * Prevent commentary text from being interpreted as HTML
+         */
+        function escapeHtml(text) {
+            return String(text)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+
+</body>
+</html>
