@@ -91,11 +91,9 @@
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
         }
 
-#commentary h2 {
-    margin-top: 0;
-    color: #5E79FF;
-}
-
+        #commentary h2 {
+            margin-top: 0;
+            color: #5E79FF;
         }
 
         #commentary p {
@@ -179,31 +177,30 @@
         const bookSelect = document.getElementById("bookSelect");
         const chapterSelect = document.getElementById("chapterSelect");
         const verseSelect = document.getElementById("verseSelect");
+        const previousVerseButton = document.getElementById("previousVerse");
+        const nextVerseButton = document.getElementById("nextVerse");
+        const commentaryBox = document.getElementById("commentary");
 
-        const previousVerseButton =
-            document.getElementById("previousVerse");
+        // Rows with a blank chapter (introductions, outlines, and every
+        // single-chapter book) are grouped under this key.
+        const INTRO = "intro";
 
-        const nextVerseButton =
-            document.getElementById("nextVerse");
-
-        const commentaryBox =
-            document.getElementById("commentary");
-
-
-        /*
-         * Load the CSV file
-         */
         Papa.parse("bible_commentary.csv", {
             download: true,
             header: true,
             skipEmptyLines: true,
 
             complete: function(results) {
-                commentaryData = results.data.filter(row =>
-                    row.book &&
-                    row.chapter &&
-                    row.verse
-                );
+                commentaryData = results.data
+                    .filter(row => row.book && row.verse)
+                    .map((row, i) => ({
+                        _id: String(i),
+                        book: row.book.trim(),
+                        chapter: (row.chapter || "").trim(),
+                        verse: row.verse.trim(),
+                        title: row.title,
+                        commentary: row.commentary
+                    }));
 
                 populateBooks();
             },
@@ -215,36 +212,39 @@
                         Make sure it is in the same folder as this HTML file.
                     </p>
                 `;
-
                 console.error(error);
             }
         });
 
+        function chapterKey(row) {
+            return row.chapter === "" ? INTRO : row.chapter;
+        }
 
-        /*
-         * Populate the book dropdown
-         */
+        // Rows for a book + chapter. Blank-chapter rows keep file order
+        // (verse numbers repeat there); numbered chapters sort by verse.
+        function getRows(book, chapter) {
+            const rows = commentaryData.filter(row =>
+                row.book === book && chapterKey(row) === chapter
+            );
+
+            if (chapter !== INTRO) {
+                rows.sort((a, b) => Number(a.verse) - Number(b.verse));
+            }
+
+            return rows;
+        }
+
         function populateBooks() {
-            const books = [
-                ...new Set(
-                    commentaryData.map(row => row.book.trim())
-                )
-            ];
+            const books = [...new Set(commentaryData.map(row => row.book))];
 
             books.forEach(book => {
                 const option = document.createElement("option");
-
                 option.value = book;
                 option.textContent = book;
-
                 bookSelect.appendChild(option);
             });
         }
 
-
-        /*
-         * When a book is selected
-         */
         bookSelect.addEventListener("change", function() {
             const selectedBook = bookSelect.value;
 
@@ -253,7 +253,6 @@
 
             chapterSelect.disabled = true;
             verseSelect.disabled = true;
-
             disableNavigationButtons();
 
             commentaryBox.innerHTML = `
@@ -266,40 +265,55 @@
                 return;
             }
 
-            const chapters = [
-                ...new Set(
-                    commentaryData
-                        .filter(row =>
-                            row.book.trim() === selectedBook
-                        )
-                        .map(row => row.chapter.trim())
-                )
-            ];
+            const keys = [...new Set(
+                commentaryData
+                    .filter(row => row.book === selectedBook)
+                    .map(chapterKey)
+            )];
 
-            chapters.sort((a, b) => Number(a) - Number(b));
+            const hasIntro = keys.includes(INTRO);
+            const numbered = keys
+                .filter(k => k !== INTRO)
+                .sort((a, b) => Number(a) - Number(b));
 
-            chapters.forEach(chapter => {
+            if (hasIntro) {
                 const option = document.createElement("option");
+                option.value = INTRO;
+                option.textContent = "Introduction";
+                chapterSelect.appendChild(option);
+            }
 
+            numbered.forEach(chapter => {
+                const option = document.createElement("option");
                 option.value = chapter;
                 option.textContent = `Chapter ${chapter}`;
-
                 chapterSelect.appendChild(option);
             });
 
             chapterSelect.disabled = false;
+
+            // Auto-load chapter 1, verse 1 (falls back to the first
+            // available chapter, then the introduction)
+            const startChapter = numbered.includes("1")
+                ? "1"
+                : (numbered[0] || INTRO);
+
+            chapterSelect.value = startChapter;
+            chapterSelect.dispatchEvent(new Event("change"));
+
+            const firstRow = getRows(selectedBook, startChapter)[0];
+
+            if (firstRow) {
+                verseSelect.value = firstRow._id;
+                displaySelectedVerse();
+            }
         });
 
-
-        /*
-         * When a chapter is selected
-         */
         chapterSelect.addEventListener("change", function() {
             const selectedBook = bookSelect.value;
             const selectedChapter = chapterSelect.value;
 
             resetSelect(verseSelect, "Select a verse");
-
             verseSelect.disabled = true;
             disableNavigationButtons();
 
@@ -313,191 +327,80 @@
                 return;
             }
 
-            const verses = [
-                ...new Set(
-                    commentaryData
-                        .filter(row =>
-                            row.book.trim() === selectedBook &&
-                            row.chapter.trim() === selectedChapter
-                        )
-                        .map(row => row.verse.trim())
-                )
-            ];
-
-            verses.sort((a, b) => Number(a) - Number(b));
-
-            verses.forEach(verse => {
+            getRows(selectedBook, selectedChapter).forEach(row => {
                 const option = document.createElement("option");
-
-                option.value = verse;
-                option.textContent = `Verse ${verse}`;
-
+                option.value = row._id;
+                option.textContent = selectedChapter === INTRO
+                    ? row.title
+                    : `Verse ${row.verse}`;
                 verseSelect.appendChild(option);
             });
 
             verseSelect.disabled = false;
         });
 
+        verseSelect.addEventListener("change", displaySelectedVerse);
 
-        /*
-         * When a verse is selected
-         */
-        verseSelect.addEventListener("change", function() {
-            displaySelectedVerse();
-        });
+        previousVerseButton.addEventListener("click", () => moveToVerse(-1));
+        nextVerseButton.addEventListener("click", () => moveToVerse(1));
 
-
-        /*
-         * Previous and next verse buttons
-         */
-        previousVerseButton.addEventListener("click", function() {
-            moveToVerse(-1);
-        });
-
-        nextVerseButton.addEventListener("click", function() {
-            moveToVerse(1);
-        });
-
-
-        /*
-         * Display the currently selected verse
-         */
         function displaySelectedVerse() {
-            const selectedBook = bookSelect.value;
-            const selectedChapter = chapterSelect.value;
-            const selectedVerse = verseSelect.value;
-
-            const row = commentaryData.find(item =>
-                item.book.trim() === selectedBook &&
-                item.chapter.trim() === selectedChapter &&
-                item.verse.trim() === selectedVerse
-            );
+            const row = commentaryData.find(item => item._id === verseSelect.value);
 
             if (!row) {
                 commentaryBox.innerHTML = `
-                    <p class="message">
-                        Commentary not found.
-                    </p>
+                    <p class="message">Commentary not found.</p>
                 `;
-
                 updateNavigationButtons();
                 return;
             }
 
-            const title = row.title
-                ? ` — ${escapeHtml(row.title)}`
-                : "";
+            const heading = row.chapter === ""
+                ? `${escapeHtml(row.book)} — ${escapeHtml(row.title)}`
+                : `${escapeHtml(row.book)} ${escapeHtml(row.chapter)}:${escapeHtml(row.verse)}` +
+                  (row.title ? ` — ${escapeHtml(row.title)}` : "");
 
             commentaryBox.innerHTML = `
-                <h2>
-                    ${escapeHtml(row.book)}
-                    ${escapeHtml(row.chapter)}:${escapeHtml(row.verse)}
-                    ${title}
-                </h2>
-
+                <h2>${heading}</h2>
                 <p>${escapeHtml(row.commentary)}</p>
             `;
 
             updateNavigationButtons();
         }
 
-
-        /*
-         * Move to the previous or next verse
-         *
-         * direction:
-         * -1 = previous verse
-         *  1 = next verse
-         */
         function moveToVerse(direction) {
-            const selectedBook = bookSelect.value;
-            const selectedChapter = chapterSelect.value;
-            const selectedVerse = verseSelect.value;
-
-            const versesInChapter = commentaryData
-                .filter(row =>
-                    row.book.trim() === selectedBook &&
-                    row.chapter.trim() === selectedChapter
-                )
-                .sort((a, b) =>
-                    Number(a.verse) - Number(b.verse)
-                );
-
-            const currentIndex = versesInChapter.findIndex(row =>
-                row.verse.trim() === selectedVerse
-            );
-
+            const rows = getRows(bookSelect.value, chapterSelect.value);
+            const currentIndex = rows.findIndex(row => row._id === verseSelect.value);
             const newIndex = currentIndex + direction;
 
-            if (
-                newIndex >= 0 &&
-                newIndex < versesInChapter.length
-            ) {
-                verseSelect.value =
-                    versesInChapter[newIndex].verse.trim();
-
+            if (newIndex >= 0 && newIndex < rows.length) {
+                verseSelect.value = rows[newIndex]._id;
                 displaySelectedVerse();
             }
         }
 
-
-        /*
-         * Enable or disable the navigation buttons
-         */
         function updateNavigationButtons() {
-            const selectedBook = bookSelect.value;
-            const selectedChapter = chapterSelect.value;
-            const selectedVerse = verseSelect.value;
+            const rows = getRows(bookSelect.value, chapterSelect.value);
+            const currentIndex = rows.findIndex(row => row._id === verseSelect.value);
 
-            const versesInChapter = commentaryData
-                .filter(row =>
-                    row.book.trim() === selectedBook &&
-                    row.chapter.trim() === selectedChapter
-                )
-                .sort((a, b) =>
-                    Number(a.verse) - Number(b.verse)
-                );
-
-            const currentIndex = versesInChapter.findIndex(row =>
-                row.verse.trim() === selectedVerse
-            );
-
-            previousVerseButton.disabled =
-                currentIndex <= 0 || currentIndex === -1;
-
+            previousVerseButton.disabled = currentIndex <= 0;
             nextVerseButton.disabled =
-                currentIndex === -1 ||
-                currentIndex >= versesInChapter.length - 1;
+                currentIndex === -1 || currentIndex >= rows.length - 1;
         }
 
-
-        /*
-         * Disable both navigation buttons
-         */
         function disableNavigationButtons() {
             previousVerseButton.disabled = true;
             nextVerseButton.disabled = true;
         }
 
-
-        /*
-         * Reset a dropdown
-         */
         function resetSelect(selectElement, defaultText) {
             selectElement.innerHTML = "";
-
             const option = document.createElement("option");
-
             option.value = "";
             option.textContent = defaultText;
-
             selectElement.appendChild(option);
         }
 
-
-        /*
-         * Prevent commentary text from being interpreted as HTML
-         */
         function escapeHtml(text) {
             return String(text)
                 .replace(/&/g, "&amp;")
